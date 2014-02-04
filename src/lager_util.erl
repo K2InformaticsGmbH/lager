@@ -184,7 +184,8 @@ localtime_ms() ->
 localtime_ms(Now) ->
     {_, _, Micro} = Now,
     {Date, {Hours, Minutes, Seconds}} = calendar:now_to_local_time(Now),
-    {Date, {Hours, Minutes, Seconds, Micro div 1000 rem 1000}}.
+    %{Date, {Hours, Minutes, Seconds, Micro div 1000 rem 1000}}.
+    {Date, {Hours, Minutes, Seconds, Micro div 1 rem 1000000}}. % 6 microsecond digits
 
 
 maybe_utc({Date, {H, M, S, Ms}}) ->
@@ -214,10 +215,10 @@ format_time() ->
 
 format_time({utc, {{Y, M, D}, {H, Mi, S, Ms}}}) ->
     {[integer_to_list(Y), $-, i2l(M), $-, i2l(D)],
-     [i2l(H), $:, i2l(Mi), $:, i2l(S), $., i3l(Ms), $ , $U, $T, $C]};
+     [i2l(H), $:, i2l(Mi), $:, i2l(S), $., i6l(Ms), $ , $U, $T, $C]};
 format_time({{Y, M, D}, {H, Mi, S, Ms}}) ->
     {[integer_to_list(Y), $-, i2l(M), $-, i2l(D)],
-     [i2l(H), $:, i2l(Mi), $:, i2l(S), $., i3l(Ms)]};
+     [i2l(H), $:, i2l(Mi), $:, i2l(S), $., i6l(Ms)]};
 format_time({utc, {{Y, M, D}, {H, Mi, S}}}) ->
     {[integer_to_list(Y), $-, i2l(M), $-, i2l(D)],
      [i2l(H), $:, i2l(Mi), $:, i2l(S), $ , $U, $T, $C]};
@@ -467,6 +468,10 @@ i2l(I)              -> integer_to_list(I).
 i3l(I) when I < 100 -> [$0 | i2l(I)];
 i3l(I)              -> integer_to_list(I).
 
+i6l(I) when I < 10000 ->
+    lists:flatten([lists:duplicate(6 - length(integer_to_list(I)), "0"), integer_to_list(I)]);
+i6l(I)              -> integer_to_list(I).
+    
 -ifdef(TEST).
 
 parse_test() ->
