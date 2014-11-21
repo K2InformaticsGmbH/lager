@@ -22,7 +22,7 @@
         open_logfile/2, ensure_logfile/4, rotate_logfile/2, format_time/0, format_time/1,
         localtime_ms/0, localtime_ms/1, maybe_utc/1, parse_rotation_date_spec/1,
         calculate_next_rotation/1, validate_trace/1, check_traces/4, is_loggable/3,
-        trace_filter/1, trace_filter/2]).
+        trace_filter/1, trace_filter/2, expand_path/1]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -472,6 +472,15 @@ i6l(I) when I < 10000 ->
     lists:flatten([lists:duplicate(6 - length(integer_to_list(I)), "0"), integer_to_list(I)]);
 i6l(I)              -> integer_to_list(I).
     
+%% When log_root option is provided, get the real path to a file
+expand_path(RelPath) ->
+    case application:get_env(lager, log_root) of
+        {ok, LogRoot} when is_list(LogRoot) -> % Join relative path
+            filename:join(LogRoot, RelPath);
+        undefined -> % No log_root given, keep relative path
+            RelPath
+    end.
+
 -ifdef(TEST).
 
 parse_test() ->
@@ -710,6 +719,23 @@ mask_to_levels_test() ->
     ?assertEqual([debug, info], mask_to_levels(2#11000000)),
     ?assertEqual([debug, info, emergency], mask_to_levels(2#11000001)),
     ?assertEqual([debug, notice, error], mask_to_levels(?DEBUG bor ?NOTICE bor ?ERROR)),
+    ok.
+
+expand_path_test() ->
+    OldRootVal = application:get_env(lager, log_root),
+
+    ok = application:unset_env(lager, log_root),
+    ?assertEqual("/foo/bar", expand_path("/foo/bar")),
+    ?assertEqual("foo/bar", expand_path("foo/bar")),
+
+    ok = application:set_env(lager, log_root, "log/dir"),
+    ?assertEqual("/foo/bar", expand_path("/foo/bar")), % Absolute path should not be changed
+    ?assertEqual("log/dir/foo/bar", expand_path("foo/bar")),
+
+    case OldRootVal of
+        undefined -> application:unset_env(lager, log_root);
+        {ok, Root} -> application:set_env(lager, log_root, Root)
+    end,
     ok.
 
 -endif.
