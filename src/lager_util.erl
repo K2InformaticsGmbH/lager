@@ -468,13 +468,10 @@ i2l(I)              -> integer_to_list(I).
 i3l(I) when I < 100 -> [$0 | i2l(I)];
 i3l(I)              -> integer_to_list(I).
 
-<<<<<<< HEAD
 i6l(I) when I < 10000 ->
     lists:flatten([lists:duplicate(6 - length(integer_to_list(I)), "0"), integer_to_list(I)]);
 i6l(I)              -> integer_to_list(I).
     
-=======
->>>>>>> upstream/master
 %% When log_root option is provided, get the real path to a file
 expand_path(RelPath) ->
     case application:get_env(lager, log_root) of
