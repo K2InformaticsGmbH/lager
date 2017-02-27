@@ -5,7 +5,7 @@ to provide a more traditional way to perform logging in an erlang application
 that plays nicely with traditional UNIX logging tools like logrotate and
 syslog.
 
-  [Travis-CI](http://travis-ci.org/basho/lager) :: ![Travis-CI](https://secure.travis-ci.org/basho/lager.png)
+[Travis-CI](http://travis-ci.org/erlang-lager/lager) :: [![Travis-CI](https://travis-ci.org/erlang-lager/lager.svg?branch=master)](http://travis-ci.org/erlang-lager/lager)
 
 Features
 --------
@@ -279,7 +279,7 @@ This will use async messaging until the mailbox exceeds 20 messages, at which
 point synchronous messaging will be used, and switch back to asynchronous, when
 size reduces to `20 - 5 = 15`.
 
-If you wish to disable this behaviour, simply set it to `undefined`. It defaults
+If you wish to disable this behaviour, simply set `async_threshold` to `undefined`. It defaults
 to a low number to prevent the mailbox growing rapidly beyond the limit and causing
 problems. In general, lager should process messages as fast as they come in, so getting
 20 behind should be relatively exceptional anyway.
@@ -652,8 +652,38 @@ You can also pass it to `erlc`, if you prefer:
 erlc -pa lager/ebin +'{parse_transform, lager_transform}' +'{lager_truncation_size, 1024}' file.erl
 ```
 
+Suppress applications and supervisors start/stop logs
+-----------------------------------------------------
+
+If you don't want to see supervisors and applications start/stop logs in debug
+level of your application, you can use these configs to turn it off:
+
+```erlang
+{lager, [{suppress_application_start_stop, true},
+         {suppress_supervisor_start_stop, true}]}
+```
+
 3.x Changelog
 -------------
+3.3.0 - 16 February 2017
+
+    * Docs: Fix documentation to make 'it' unambiguous when discussing asychronous
+      operation. (#387)
+    * Test: Fix test flappiness due to insufficient sanitation between test runs (#384, #385)
+    * Feature: Allow metadata only logging. (#380)
+    * Feature: Add an upper case severity formatter (#372)
+    * Feature: Add support for suppressing start/stop messages from supervisors (#368)
+    * Bugfix: Fix ranch crash messages (#366)
+    * Test: Update Travis config for 18.3 and 19.0 (#365)
+
+3.2.4 - 11 October 2016
+
+    * Test: Fix dialyzer warnings.
+
+3.2.3 - 29 September 2016
+
+    * Dependency: Update to goldrush 0.19
+
 3.2.2 - 22 September 2016
 
     * Bugfix: Backwards-compatibility fix for `{crash_log, undefined}` (#371)
