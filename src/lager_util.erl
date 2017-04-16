@@ -28,7 +28,7 @@
     open_logfile/2, ensure_logfile/4, rotate_logfile/2, format_time/0, format_time/1,
     localtime_ms/0, localtime_ms/1, maybe_utc/1, parse_rotation_date_spec/1,
     calculate_next_rotation/1, validate_trace/1, check_traces/4, is_loggable/3,
-    trace_filter/1, trace_filter/2, expand_path/1, check_hwm/1,
+    trace_filter/1, trace_filter/2, expand_path/1, find_file/2, check_hwm/1,
     make_internal_sink_name/1, otp_version/0
 ]).
 
@@ -409,44 +409,56 @@ validate_trace(_) ->
 
 validate_trace_filter(Filter) when is_tuple(Filter), is_atom(element(1, Filter)) =:= false ->
     false;
-validate_trace_filter(Filter) ->
-        case lists:all(fun({Key, '*'}) when is_atom(Key) -> true;
-                          ({Key, '!'}) when is_atom(Key) -> true;
-                          ({Key, _Value})      when is_atom(Key) -> true;
-                          ({Key, '=', _Value}) when is_atom(Key) -> true;
-                          ({Key, '<', _Value}) when is_atom(Key) -> true;
-                          ({Key, '>', _Value}) when is_atom(Key) -> true;
-                          (_) -> false end, Filter) of
-            true ->
-                true;
-            _ ->
-                false
-        end.
+validate_trace_filter(Filter) when is_list(Filter) ->
+    lists:all(fun validate_trace_filter/1, Filter);
+validate_trace_filter({Key, '*'}) when is_atom(Key) -> true;
+validate_trace_filter({any, L}) when is_list(L) -> lists:all(fun validate_trace_filter/1, L);
+validate_trace_filter({all, L}) when is_list(L) -> lists:all(fun validate_trace_filter/1, L);
+validate_trace_filter({null, Bool}) when is_boolean(Bool) -> true;
+validate_trace_filter({Key, _Value})      when is_atom(Key) -> true;
+validate_trace_filter({Key, '=', _Value}) when is_atom(Key) -> true;
+validate_trace_filter({Key, '!=', _Value}) when is_atom(Key) -> true;
+validate_trace_filter({Key, '<', _Value}) when is_atom(Key) -> true;
+validate_trace_filter({Key, '=<', _Value}) when is_atom(Key) -> true;
+validate_trace_filter({Key, '>', _Value}) when is_atom(Key) -> true;
+validate_trace_filter({Key, '>=', _Value}) when is_atom(Key) -> true;
+validate_trace_filter(_) -> false.
 
 trace_all(Query) ->
-	glc:all(trace_acc(Query)).
+    glc:all(trace_acc(Query)).
 
 trace_any(Query) ->
-	glc:any(Query).
+    glc:any(Query).
 
 trace_acc(Query) ->
     trace_acc(Query, []).
 
 trace_acc([], Acc) ->
-	lists:reverse(Acc);
+    lists:reverse(Acc);
+trace_acc([{any, L}|T], Acc) ->
+    trace_acc(T, [glc:any(L)|Acc]);
+trace_acc([{all, L}|T], Acc) ->
+    trace_acc(T, [glc:all(L)|Acc]);
+trace_acc([{null, Bool}|T], Acc) ->
+    trace_acc(T, [glc:null(Bool)|Acc]);
 trace_acc([{Key, '*'}|T], Acc) ->
-	trace_acc(T, [glc:wc(Key)|Acc]);
+    trace_acc(T, [glc:wc(Key)|Acc]);
 trace_acc([{Key, '!'}|T], Acc) ->
-	trace_acc(T, [glc:nf(Key)|Acc]);
+    trace_acc(T, [glc:nf(Key)|Acc]);
 trace_acc([{Key, Val}|T], Acc) ->
-	trace_acc(T, [glc:eq(Key, Val)|Acc]);
+    trace_acc(T, [glc:eq(Key, Val)|Acc]);
 trace_acc([{Key, '=', Val}|T], Acc) ->
-	trace_acc(T, [glc:eq(Key, Val)|Acc]);
+    trace_acc(T, [glc:eq(Key, Val)|Acc]);
+trace_acc([{Key, '!=', Val}|T], Acc) ->
+    trace_acc(T, [glc:neq(Key, Val)|Acc]);
 trace_acc([{Key, '>', Val}|T], Acc) ->
-	trace_acc(T, [glc:gt(Key, Val)|Acc]);
+    trace_acc(T, [glc:gt(Key, Val)|Acc]);
+trace_acc([{Key, '>=', Val}|T], Acc) ->
+    trace_acc(T, [glc:gte(Key, Val)|Acc]);
+trace_acc([{Key, '=<', Val}|T], Acc) ->
+    trace_acc(T, [glc:lte(Key, Val)|Acc]);
 trace_acc([{Key, '<', Val}|T], Acc) ->
-	trace_acc(T, [glc:lt(Key, Val)|Acc]).
-
+    trace_acc(T, [glc:lt(Key, Val)|Acc]).
 
 check_traces(_, _,  [], Acc) ->
     lists:flatten(Acc);
@@ -465,10 +477,10 @@ check_trace(Attrs, {Filter, _Level, Dest}) when is_tuple(Filter) ->
     glc:handle(?DEFAULT_TRACER, Made),
     Match = glc_lib:matches(Filter, Made),
     case Match of
-	true ->
-	    Dest;
-	false ->
-	    []
+        true ->
+            Dest;
+        false ->
+            []
     end.
 
 -spec is_loggable(lager_msg:lager_msg(), non_neg_integer()|{'mask', non_neg_integer()}, term()) -> boolean().
@@ -506,6 +518,26 @@ expand_path(RelPath) ->
         undefined -> % No log_root given, keep relative path
             RelPath
     end.
+
+%% Find a file among the already installed handlers.
+%%
+%% The file is already expanded (i.e. lager_util:expand_path already added the
+%% "log_root"), but the file paths inside Handlers are not.
+find_file(_File1, _Handlers = []) ->
+    false;
+find_file(File1, [{{lager_file_backend, File2}, _Handler, _Sink} = HandlerInfo | Handlers]) ->
+    File1Abs = filename:absname(File1),
+    File2Abs = filename:absname(lager_util:expand_path(File2)),
+    case File1Abs =:= File2Abs of
+        true ->
+            % The file inside HandlerInfo is the same as the file we are looking
+            % for, so we are done.
+            HandlerInfo;
+        false ->
+            find_file(File1, Handlers)
+    end;
+find_file(File1, [_HandlerInfo | Handlers]) ->
+    find_file(File1, Handlers).
 
 %% Log rate limit, i.e. high water mark for incoming messages
 
@@ -844,6 +876,14 @@ create_test_dir() ->
     end.
 
 delete_test_dir(Dir) ->
+    case otp_version() of
+        15 ->
+            os:cmd("rm -rf " ++ Dir);
+        _ ->
+            do_delete_test_dir(Dir)
+    end.
+
+do_delete_test_dir(Dir) ->
     ListRet = file:list_dir_all(Dir),
     ?assertMatch({ok, _}, ListRet),
     {_, Entries} = ListRet,

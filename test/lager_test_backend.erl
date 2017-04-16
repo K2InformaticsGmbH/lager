@@ -210,7 +210,7 @@ lager_test_() ->
             },
             {"unsafe logging with args works",
                 fun() ->
-                        lager:warning("test message ~p", [self()]),
+                        lager:warning_unsafe("test message ~p", [self()]),
                         ?assertEqual(1, count()),
                         {Level, _Time, Message,_Metadata}  = pop(),
                         ?assertMatch(Level, lager_util:level_to_num(warning)),
@@ -479,6 +479,26 @@ lager_test_() ->
                         lager:clear_all_traces(),
                         lager:info([{requestid, 6}], "hello world"),
                         ?assertEqual(10, count()),
+                        lager:clear_all_traces(),
+                        lager:trace(?MODULE, [{requestid, '>=', 5}, {requestid, '=<', 7}], debug),
+                        lager:info([{requestid, 4}], "nope!"),
+                        lager:info([{requestid, 5}], "hello world"),
+                        lager:info([{requestid, 7}], "hello world again"),
+                        ?assertEqual(12, count()),
+                        lager:clear_all_traces(),
+                        lager:trace(?MODULE, [{foo, '!=', bar}]),
+                        lager:info([{foo, bar}], "hello world"),
+                        ?assertEqual(12, count()),
+                        lager:info([{foo, baz}], "blarg"),
+                        ?assertEqual(13, count()),
+                        lager:clear_all_traces(),
+                        lager:trace(?MODULE, [{all, [{foo, '=', bar}, {null, false}]}]),
+                        lager:info([{foo, bar}], "should not be logged"),
+                        ?assertEqual(13, count()),
+                        lager:clear_all_traces(),
+                        lager:trace(?MODULE, [{any, [{foo, '=', bar}, {null, true}]}]),
+                        lager:info([{foo, qux}], "should be logged"),
+                        ?assertEqual(14, count()),
                         ok
                 end
             },
@@ -912,6 +932,99 @@ error_logger_redirect_crash_cleanup(_Sink) ->
         Pid -> exit(Pid, kill)
     end,
     error_logger:tty(true).
+
+crash_fsm_setup() ->
+    error_logger:tty(false),
+    application:load(lager),
+    application:set_env(lager, error_logger_redirect, true),
+    application:set_env(lager, handlers, [{?MODULE, error}]),
+    lager:start(),
+    crash_fsm:start(),
+    crash_statem:start(),
+    lager:log(error, self(), "flush flush"),
+    timer:sleep(100),
+    gen_event:call(lager_event, ?MODULE, flush),
+    lager_event.
+
+crash_fsm_sink_setup() ->
+    ErrorSink = error_logger_lager_event,
+    error_logger:tty(false),
+    application:load(lager),
+    application:set_env(lager, error_logger_redirect, true),
+    application:set_env(lager, handlers, []),
+    application:set_env(lager, extra_sinks, [{ErrorSink, [{handlers, [{?MODULE, error}]}]}]),
+    lager:start(),
+    crash_fsm:start(),
+    crash_statem:start(),
+    lager:log(ErrorSink, error, self(), "flush flush", []),
+    timer:sleep(100),
+    flush(ErrorSink),
+    ErrorSink.
+
+crash_fsm_cleanup(_Sink) ->
+    application:stop(lager),
+    application:stop(goldrush),
+    application:unset_env(lager, extra_sinks),
+    lists:foreach(fun(N) -> kill_crasher(N) end, [crash_fsm, crash_statem]),
+    error_logger:tty(true).
+
+kill_crasher(RegName) ->
+    case whereis(RegName) of
+        undefined -> ok;
+        Pid -> exit(Pid, kill)
+    end.
+
+spawn_fsm_crash(Module) ->
+    spawn(fun() -> Module:crash() end),
+    timer:sleep(100),
+    _ = gen_event:which_handlers(error_logger),
+    ok.
+
+crash_fsm_test_() ->
+    TestBody = fun(Name, FsmModule, Expected) ->
+                   fun(Sink) ->
+                      {Name,
+                       fun() ->
+                            case {FsmModule =:= crash_statem, lager_util:otp_version() < 19} of
+                                {true, true} -> ok;
+                                _ ->
+                                    Pid = whereis(FsmModule),
+                                    spawn_fsm_crash(FsmModule),
+                                    {Level, _, Msg, Metadata} = pop(Sink),
+                                    test_body(Expected, lists:flatten(Msg)),
+                                    ?assertEqual(Pid, proplists:get_value(pid, Metadata)),
+                                    ?assertEqual(lager_util:level_to_num(error), Level)
+                            end
+                       end
+                      }
+                   end
+               end,
+    Tests = [
+        fun(Sink) ->
+            {"again, there is nothing up my sleeve",
+                fun() ->
+                        ?assertEqual(undefined, pop(Sink)),
+                        ?assertEqual(0, count(Sink))
+                end
+            }
+        end,
+
+        TestBody("gen_fsm crash", crash_fsm, "gen_fsm crash_fsm in state state1 terminated with reason: call to undefined function crash_fsm:state1/3 from gen_fsm:handle_msg/7"),
+        TestBody("gen_statem crash", crash_statem, "gen_statem crash_statem in state state1 terminated with reason: no function clause matching crash_statem:handle")
+    ],
+
+    {"FSM crash output tests", [
+        {"Default sink",
+         {foreach,
+            fun crash_fsm_setup/0,
+            fun crash_fsm_cleanup/1,
+            Tests}},
+        {"Error logger sink",
+         {foreach,
+            fun crash_fsm_sink_setup/0,
+            fun crash_fsm_cleanup/1,
+            Tests}}
+    ]}.
 
 error_logger_redirect_crash_test_() ->
     TestBody=fun(Name,CrashReason,Expected) ->
@@ -1588,7 +1701,7 @@ async_threshold_test_() ->
     end,
     {foreach, Setup, Cleanup, [
         {"async threshold works",
-        fun() ->
+         {timeout, 30, fun() ->
             %% we start out async
             ?assertEqual(true, lager_config:get(async)),
             ?assertEqual([{sync_toggled, 0}],
@@ -1629,7 +1742,7 @@ async_threshold_test_() ->
             %% async is true again now that the mailbox has drained
             ?assertEqual(true, lager_config:get(async)),
             ok
-        end}
+        end}}
     ]}.
 
 % Fire off the stuffers with minimal resource overhead - speed is of the essence.
