@@ -40,6 +40,13 @@ tested on the previous three OTP releases. If you need a version of lager
 which runs on older OTP releases, we recommend you use either the 3.4.0 release
 or the 2.x branch.
 
+Monthly triage cadence
+----------------------
+We have (at least) monthly issue and PR triage for lager in the #lager room on the 
+[freenode](https://freenode.net) IRC network every third Thursday at 2 pm US/Pacific,
+9 pm UTC. You are welcome to join us there to ask questions about lager or 
+participate in the triage.
+
 Usage
 -----
 To use lager in your application, you need to define it as a rebar dep or have
@@ -235,6 +242,22 @@ Examples:
 [{pid,"Unknown Pid"}] -> "<?.?.?>" if pid is in the metadata, "Unknown Pid" if not.
 [{pid, ["My pid is ", pid], ["Unknown Pid"]}] -> if pid is in the metadata print "My pid is <?.?.?>", otherwise print "Unknown Pid"
 [{server,{pid, ["(", pid, ")"], ["(Unknown Server)"]}}] -> user provided server metadata, otherwise "(<?.?.?>)", otherwise "(Unknown Server)"
+```
+
+Universal time
+--------------
+By default, lager formats timestamps as local time for whatever computer
+generated the log message.
+
+To make lager use UTC timestamps, you can set the `sasl` application's
+`utc_log` configuration parameter to `true` in your application configuration
+file.
+
+Example:
+
+```
+%% format log timestamps as UTC
+[{sasl, [{utc_log, true}]}].
 ```
 
 Error logger integration
@@ -451,7 +474,7 @@ See the `.app.src` file for further details.
 Syslog Support
 --------------
 Lager syslog output is provided as a separate application:
-[lager_syslog](https://github.com/basho/lager_syslog). It is packaged as a
+[lager_syslog](https://github.com/erlang-lager/lager_syslog). It is packaged as a
 separate application so lager itself doesn't have an indirect dependency on a
 port driver. Please see the `lager_syslog` README for configuration information.
 
