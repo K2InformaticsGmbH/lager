@@ -962,6 +962,25 @@ level of your application, you can use these configs to turn it off:
          {suppress_supervisor_start_stop, true}]}
 ```
 
+Sys debug functions
+--------------------
+
+Lager provides an integrated way to use sys 'debug functions'. You can install a debug
+function in a target process by doing
+
+```erlang
+lager:install_trace(Pid, notice).
+```
+
+This will, on every 'system event' for an OTP process (usually inbound messages, replies
+and state changes) generate a lager message at the specified log level.
+
+You can remove the trace when you're done by doing:
+
+```erlang
+lager:remove_trace(Pid).
+```
+
 Elixir Support
 --------------
 
@@ -1054,6 +1073,12 @@ Example Usage:
 
 3.x Changelog
 -------------
+3.6.4 - 11 July 2018
+
+    * Bugfix: Reinstall handlers after a sink is killed #459
+    * Bugfix: Fix platform_define matching not to break on OSX Mojave #461
+    * Feature: Add support for installing a sys trace function #462
+
 3.6.3 - 6 June 2018
 
     * OTP 21 support
