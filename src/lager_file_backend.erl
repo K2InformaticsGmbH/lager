@@ -179,8 +179,8 @@ handle_event({log, Message},
                     {ok,write(NewState#state{shaper=NewShaper},
                         lager_msg:timestamp(Message), lager_msg:severity_as_int(Message),
                         Formatter:format(Message,FormatConfig))};
-                {false, _, NewShaper} ->
-                    {ok, State#state{shaper=NewShaper}}
+                {false, _, #lager_shaper{dropped=D} = NewShaper} ->
+                    {ok, State#state{shaper=NewShaper#lager_shaper{dropped=D+1}}}
             end;
         false ->
             {ok, State}
@@ -190,8 +190,8 @@ handle_event(_Event, State) ->
 
 %% @private
 handle_info({rotate, File}, #state{name=File,count=Count,date=Date,rotator=Rotator} = State) ->
-    _ = Rotator:rotate_logfile(File, Count),
     State1 = close_file(State),
+    _ = Rotator:rotate_logfile(File, Count),
     schedule_rotation(File, Date),
     {ok, State1};
 handle_info({shaper_expired, Name}, #state{shaper=Shaper, name=Name, formatter=Formatter, formatter_config=FormatConfig} = State) ->
@@ -206,7 +206,7 @@ handle_info({shaper_expired, Name}, #state{shaper=Shaper, name=Name, formatter=F
             write(State, lager_msg:timestamp(ReportMsg),
                   lager_msg:severity_as_int(ReportMsg), Formatter:format(ReportMsg, FormatConfig))
     end,
-    {ok, State#state{shaper=Shaper#lager_shaper{dropped=0, mps=1, lasttime=os:timestamp()}}};
+    {ok, State#state{shaper=Shaper#lager_shaper{dropped=0, mps=0, lasttime=os:timestamp()}}};
 handle_info(_Info, State) ->
     {ok, State}.
 
@@ -884,6 +884,7 @@ filesystem_test_() ->
 
             gen_event:add_handler(lager_event, lager_file_backend,
                 [{file, TestLog}, {level, critical}, {check_interval, always}]),
+            timer:sleep(500),
             lager:critical("Test message"),
             {ok, Bin1} = file:read_file(TestLog),
             ?assertMatch([_, _, "[critical]", _, "Test message\n"],
@@ -956,6 +957,23 @@ filesystem_test_() ->
             timer:sleep(10),
             ?assert(filelib:is_regular(TestLog0)),
 
+            lager_util:delete_test_dir(TestDir)
+        end},
+        {"no silent hwm drops",
+        fun() ->
+            TestDir = lager_util:create_test_dir(),
+            TestLog = filename:join(TestDir, "test.log"),
+            gen_event:add_handler(lager_event, lager_file_backend, [{file, TestLog}, {level, info},
+                {high_water_mark, 5}, {flush_queue, false}, {sync_on, "=warning"}]),
+            {_, _, MS} = os:timestamp(),
+            timer:sleep((1000000 - MS) div 1000 + 1),
+            %start close to the beginning of a new second
+            [lager:log(info, self(), "Foo ~p", [K]) || K <- lists:seq(1, 15)],
+            timer:sleep(1000),
+            {ok, Bin} = file:read_file(TestLog),
+            Last = lists:last(re:split(Bin, "\n", [{return, list}, trim])),
+            ?assertMatch([_, _, _, _, "lager_file_backend dropped 10 messages in the last second that exceeded the limit of 5 messages/sec"],
+                re:split(Last, " ", [{return, list}, {parts, 5}])),
             lager_util:delete_test_dir(TestDir)
         end}
     ]}.

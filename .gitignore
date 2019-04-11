@@ -1,6 +1,7 @@
 rebar.lock
 _build
 .eunit
+.rebar
 *.beam
 ebin
 doc
